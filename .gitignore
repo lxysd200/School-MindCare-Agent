@@ -25,3 +25,5 @@ chroma/
 chromadb/
 *.sqlite
 *.sqlite3
+
+rag_eval/results/

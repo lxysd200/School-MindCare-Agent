@@ -74,6 +74,7 @@ class KnowledgeChunk(Base):
     content: Mapped[str] = mapped_column(Text)
     embedding_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
 
 
 class PsychologicalReport(Base):
