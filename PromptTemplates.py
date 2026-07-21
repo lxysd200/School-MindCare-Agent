@@ -1,4 +1,5 @@
 from __future__ import annotations
+from Agent_Type.AgentContext import SearchResult
 
 
 def format_history(history: list[object]) -> str:
@@ -16,6 +17,15 @@ def format_history(history: list[object]) -> str:
         lines.append(f"{role}: {content}")
     return "\n".join(lines)
 
+def format_rag_support(results: list[SearchResult]) -> str:
+    if not results:
+        return "无"
+    lines: list[str] = []
+    i =1
+    for result in results:
+        lines.append(f"{i}. {result.content}")
+        i += 1
+    return "\n".join(lines)
 
 class PromptTemplates:
     @staticmethod
@@ -26,7 +36,11 @@ class PromptTemplates:
                 "content": (
                     "你是一个用户意图分类器，只做意图识别，不回答问题。"
                     "你需要根据用户当前输入和最近上下文,判断用户意图。"
+                    "你要结合上下文中的对话内容来进行判断"
                     "只输出 CHAT、CONSULT、RISK 之一。"
+                    "CHAT 包含普通闲聊、学习、编程、作业、校园事务；不涉及明显情绪困扰或心理支持诉求。"
+                    "CONSULT 包含压力、焦虑、低落、失眠、情绪倾诉；"
+                     "RISK 包含自杀、自残、伤人或即时危险信号。"
                 ),
             },
             {
@@ -62,7 +76,7 @@ class PromptTemplates:
     def answer_system_prompt(
         intent: object,
         risk: object,
-        context: str,
+        rag_support: list[SearchResult],
         display_name: str,
         skill_context: str = "",
     ) -> dict[str, str]:
@@ -90,6 +104,6 @@ class PromptTemplates:
             "回答要共情、谨慎、非评判，不诊断疾病，不开药，不替代持证心理咨询师。"
             "不要向学生输出风险等级、报告分数或后台标签。"
             "优先基于检索知识回答；知识不足时明确说明并给出安全通用建议。"
-            f"\n学生显示名：{display_name}\n检索知识：\n{context}\n\n可用 skill 指引：\n{skill_context or '无'}{crisis_rule}"
+            f"\n学生显示名：{display_name}\n检索知识：\n{format_rag_support(rag_support)}\n\n可用 skill 指引：\n{skill_context or '无'}{crisis_rule}"
         )
         return {"role": "system", "content": content}

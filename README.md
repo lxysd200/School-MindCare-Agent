@@ -1,20 +1,24 @@
 # MindBridge
 
-面向学生的陪伴与校园心理关怀智能体原型。项目重点在于将多阶段对话流程工程化：意图路由、记忆召回、知识检索（规划中）、风险守护与回复生成，并支持多模型后端切换。
+面向学生的陪伴与校园心理关怀智能体原型。项目重点在于将多阶段对话流程工程化：意图路由、记忆召回、RAG 检索、风险守护、Skill 指引与回复生成，并提供 FastAPI 后端接口（SSE 流式输出）。
 
 ## 特性
 
-- LangGraph 编排的多节点对话流程：Memory → Supervisor → Knowledge(规划) → Risk Guardian → Counselor/Companion
+- LangGraph 编排的多节点对话流程：Memory → Supervisor → Knowledge(RAG) → Risk Guardian → Counselor/Companion
 - 意图识别 Prompt 模板：只做分类（CHAT / CONSULT / RISK），不输出回答
-- 对话记忆管理：从本地对话记录中召回近期消息 + 中期压缩摘要，并生成可注入模型的 history
+- 记忆模块：基于会话历史召回 + 中期压缩摘要，注入模型 history
+- RAG：MySQL 存储知识切片 + Chroma 向量库索引，支持向量检索与 BM25 混合检索
+- Skill 系统：按意图/风险/关键词加载技能指引（`skills/*/SKILL.md`），注入回复系统提示词
+- 后端服务：FastAPI + StreamingResponse（SSE），提供对话流式接口与历史查询
 - 多模型后端适配：OpenAI / DeepSeek / Ollama（统一 OpenAI SDK 调用方式）
-- 面向“开发过程留痕”的仓库组织：文档、决策记录与里程碑版本可追溯
+- 面向“开发过程留痕”的仓库组织：开发日志、关键决策与里程碑版本可追溯
 
 ## 快速开始
 
 ### 1. 环境要求
 
-- Python 3.10+（依赖 `mcp` 的版本约束）
+- Python 3.10+
+- MySQL 8+（用于会话、消息与知识切片存储）
 
 ### 2. 安装依赖
 
@@ -32,36 +36,103 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-项目默认使用 DeepSeek（也可切换 OpenAI / Ollama）。示例变量见 [.env.example](./.env.example)。
+示例变量见 [.env.example](./.env.example)，主要分为几类：
 
-### 4. 运行示例
+- LLM 推理：`LLM_BACKEND`、`DEEPSEEK_API_KEY`/`OPENAI_API_KEY` 等
+- 数据库：`DATABASE_URL` 或 `MYSQL_HOST/MYSQL_USER/...`
+- 向量库：`CHROMA_PATH`、`CHROMA_COLLECTION`
+- Embedding：`OPENAI_BASE_URL` + `OPENAI_EMBEDDING_MODEL` + `DASHSCOPE_API_KEY/OPENAI_API_KEY`
+- 混合检索：`ENABLE_BM25`、`HYBRID_ALPHA`、`HYBRID_GATE_THRESHOLD`、`TOP_K` 等
 
-当前仓库自带一个最小可运行的 LangGraph 流程演示脚本：
+### 4. 初始化数据库（第一次需要）
+
+1) 创建数据库并导入表结构：
 
 ```bash
-python MultiAgent.py
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS mindbridge DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -u root -p mindbridge < SQL/mysql_schema.sql
 ```
 
-记忆模块可单独运行查看压缩结果：
+2) 插入一份最小可用的 demo 数据（当前 ChatService 默认使用 `user_id=1`）：
+
+```sql
+INSERT INTO user_accounts (id, username, display_name, password_hash)
+VALUES (1, 'test_user', 'test_user', 'placeholder');
+
+INSERT INTO chat_sessions (id, public_id, title, user_id)
+VALUES (1, 'demo-session', 'Demo Session', 1);
+```
+
+### 5. 同步知识库到 MySQL + Chroma（可选但推荐）
+
+把 `knowledge/*.md` 切片并写入 MySQL 与 Chroma：
 
 ```bash
-python memory.py
+python sync_all_knowledge.py
 ```
+
+查看 Chroma 索引情况：
+
+```bash
+python chroma_inspect.py list
+python chroma_inspect.py info
+python chroma_inspect.py preview --limit 3
+```
+
+### 6. 启动后端服务（FastAPI）
+
+```bash
+python main.py
+```
+
+启动后访问：
+
+- Swagger：`http://127.0.0.1:8000/docs`
+
+### 7. 调用接口（示例）
+
+1) 流式对话（SSE）：
+
+`POST /api/chat/stream`
+
+请求体示例（`sessionId` 对应 `chat_sessions.public_id`）：
+
+```json
+{
+  "sessionId": "demo-session",
+  "message": "我最近有点难受"
+}
+```
+
+2) 会话列表：
+
+`GET /api/chat/history`
+
+3) 获取某个会话的完整对话：
+
+`GET /api/chat/conversation/{publicId}`
 
 ## 项目结构（当前）
 
 ```text
 .
-├── llm_agent.py          # LLM 后端适配与统一调用
-├── PromptTemplates.py    # Prompt 模板（意图识别/心理分析/回复系统提示词）
-├── memory.py             # 记忆召回与压缩
-├── memory_test.txt       # 示例对话记忆数据（可替换为你的数据源）
-├── MultiAgent.py         # LangGraph 多节点编排原型
+├── main.py                # FastAPI 入口
+├── api/                   # 路由层（SSE/历史接口）
+├── Agents/                # Agent 编排与运行时
+├── Agent_Type/            # Agent 运行上下文与类型定义
+├── service/               # 业务服务：DB/记忆/RAG/技能/风险评估/聊天
+├── Entities/              # ORM 实体（SQLAlchemy）
+├── SQL/                   # MySQL schema
+├── knowledge/             # 领域知识库（markdown）
+├── skills/                # Skill 指引（SKILL.md）
+├── rag_eval/              # 检索评测脚本与数据
+├── Test/                  # 测试脚本（RAG/embedding/graph）
+├── PromptTemplates.py     # Prompt 模板（意图识别/心理分析/回复系统提示词）
+├── sync_all_knowledge.py  # 同步知识库到 MySQL + Chroma
+├── chroma_inspect.py      # Chroma 工具：list/info/preview
 ├── requirements.txt
 ├── .env.example
-└── docs/
-    ├── devlog.md         # 开发日志（过程留痕）
-    └── decisions.md      # 关键决策记录（架构/技术选型）
+└── docs/                  # 过程留痕与文档
 ```
 
 ## 设计原则与安全边界
@@ -72,17 +143,17 @@ python memory.py
 
 ## 路线图（规划）
 
-- RAG：检索增强生成（知识库构建、查询改写、证据注入、答案引用）
+- RAG：检索增强生成（查询改写、证据注入、答案引用、召回评测）
 - MCP：工具调用与外部能力接入（数据源、校园服务、知识库工具）
-- Backend：FastAPI 服务化、鉴权、会话存储、向量库持久化
-- 评测：对话质量评测与安全评测（数据集、回归测试、自动化对比）
+- Backend：鉴权、会话/用户管理、追踪与审计、任务队列
+- 评测：对话质量与安全评测（回归测试、自动化对比）
 
 ## 开发过程
 
 - 开发日志：见 [docs/devlog.md](./docs/devlog.md)
 - 决策记录：见 [docs/decisions.md](./docs/decisions.md)
+- Chroma 使用说明：见 [docs/chroma_cli.md](./docs/chroma_cli.md)
 
 ## License
 
 暂未选择许可证（默认 All rights reserved）。若你希望开源协作，可补充 MIT/Apache-2.0 等许可证。
-

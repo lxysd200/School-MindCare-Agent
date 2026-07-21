@@ -9,7 +9,7 @@ from typing import Iterable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from service.chroma_store import ChromaManager
-
+from Agent_Type.AgentContext import SearchResult
 
 
 logger = logging.getLogger(__name__)
@@ -24,12 +24,7 @@ from Entities.entities import KnowledgeChunk
 
 load_dotenv()
 
-@dataclass
-class SearchResult:
-    chunk_id: int | None
-    source: str
-    content: str
-    score: float
+
 
 
 @dataclass

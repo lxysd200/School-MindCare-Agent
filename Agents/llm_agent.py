@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence
+
+from Agent_Type.AgentContext import AiMessage
 
 try:
     from dotenv import load_dotenv
@@ -71,6 +73,24 @@ class LLMAgent:
 
         self._client = OpenAI(**kwargs)
         return self._client
+
+    def stream_chat(self, messages: Sequence[AiMessage]) -> Iterator[str]:
+        client = self._get_client()
+        normalized_messages = [
+            {"role": message.role, "content": message.content}
+            for message in messages
+        ]
+        stream = client.chat.completions.create(
+            model=self._config.model,
+            temperature=self._config.temperature,
+            messages=normalized_messages,
+            stream=True,
+        )
+
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                yield delta
 
 
 def load_llm_config(agent_name: str | None = None) -> LLMConfig:

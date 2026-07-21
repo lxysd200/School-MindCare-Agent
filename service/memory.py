@@ -5,7 +5,11 @@ from pathlib import Path
 import os
 import re
 
-from llm_agent import LLMAgent, LLMConfig, has_llm_env
+from sqlalchemy import select
+
+from Entities.entities import ChatMessage
+from Agents.llm_agent import LLMAgent, LLMConfig, has_llm_env
+from service.db import get_db_session
 
 try:
     from dotenv import load_dotenv
@@ -17,6 +21,7 @@ except ImportError:
 RECENT_MESSAGE_COUNT = 8
 MID_MEMORY_USER_COUNT = 4
 MID_MEMORY_ASSISTANT_COUNT = 3
+DIALOGUE_ROUND_LIMIT = 20
 DEFAULT_MID_TOKEN_BUDGET = 400
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-chat"
@@ -44,7 +49,10 @@ class MemoryRecallResult:
 
 @dataclass
 class MemoryManager:
-    memory_source_path: str | Path
+    memory_source_path: str | Path | None = None
+    user_id: int | None = None
+    session_id: int | None = None
+    dialogue_round_limit: int = DIALOGUE_ROUND_LIMIT
     mid_token_budget: int = DEFAULT_MID_TOKEN_BUDGET
     recent_message_count: int = RECENT_MESSAGE_COUNT
     mid_user_count: int = MID_MEMORY_USER_COUNT
@@ -145,6 +153,12 @@ class MemoryManager:
         )
 
     def _parse_memory_file(self) -> list[MemoryMessage]:
+        if self.user_id is not None and self.session_id is not None:
+            return self._load_messages_from_database()
+
+        if self.memory_source_path is None:
+            return []
+
         path = Path(self.memory_source_path)
         if not path.exists():
             return []
@@ -156,6 +170,30 @@ class MemoryManager:
                 continue
             role, content = match.groups()
             messages.append(MemoryMessage(role=role, content=content.strip()))
+        return messages
+
+    def _load_messages_from_database(self) -> list[MemoryMessage]:
+        message_limit = max(0, self.dialogue_round_limit * 2)
+        if message_limit == 0:
+            return []
+
+        with get_db_session() as db:
+            stmt = (
+                select(ChatMessage)
+                .where(ChatMessage.user_id == self.user_id)
+                .where(ChatMessage.session_id == self.session_id)
+                .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+                .limit(message_limit)
+            )
+            records = list(db.scalars(stmt).all())
+
+        records.reverse()
+        messages: list[MemoryMessage] = []
+        for record in records:
+            content = (record.content or "").strip()
+            if not content:
+                continue
+            messages.append(MemoryMessage(role=record.role, content=content))
         return messages
 
     def _select_messages_by_role(
@@ -352,7 +390,10 @@ class MemoryManager:
 
 
 def load_memory_for_model(
-    file_path: str | Path,
+    file_path: str | Path | None = None,
+    user_id: int | None = None,
+    session_id: int | None = None,
+    dialogue_round_limit: int = DIALOGUE_ROUND_LIMIT,
     mid_token_budget: int = DEFAULT_MID_TOKEN_BUDGET,
     recent_message_count: int = RECENT_MESSAGE_COUNT,
     mid_user_count: int = MID_MEMORY_USER_COUNT,
@@ -360,6 +401,9 @@ def load_memory_for_model(
 ) -> MemoryRecallResult:
     manager = MemoryManager(
         memory_source_path=file_path,
+        user_id=user_id,
+        session_id=session_id,
+        dialogue_round_limit=dialogue_round_limit,
         mid_token_budget=mid_token_budget,
         recent_message_count=recent_message_count,
         mid_user_count=mid_user_count,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from llm_agent import LLMAgent
+from Agents.llm_agent import LLMAgent
 from service.chroma_store import get_chroma_manager
 
 try:
