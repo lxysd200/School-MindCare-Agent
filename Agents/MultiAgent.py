@@ -221,7 +221,10 @@ def Knowledge_Agent(state: GraphState) -> GraphState:
     results = service.retrieve(knowledge_query)
     context.rag_support = results
     context.knowledge_handled = True
-    context.steps.append(AgentStep(step=len(context.steps) + 1, agent="Knowledge", action="调用知识库", observation=context.rag_support))
+    observation = ""
+    for result in results:
+        observation += f"{result.source}: {result.chunk_id}: {result.score}\n"
+    context.steps.append(AgentStep(step=len(context.steps) + 1, agent="Knowledge", action="调用知识库", observation=observation))
     return state
 
 def Risk_Guardian_Agent(state: GraphState) -> GraphState:
@@ -249,20 +252,22 @@ def Counselor_Agent(state: GraphState) -> GraphState:
     context.response_planned = True
     print("生成回复")
     skill_service = SkillService(context)
-    skill_context = skill_service.build_skill_context()
+    skills = skill_service.build_skill_context()
+    skill_context = "\n\n".join(skills.values())
     prompt = PromptTemplates.answer_system_prompt(
         context.intent,
         context.risk_level,
         context.rag_support,
         context.user.display_name,
-        skill_context
+        skill_context = skill_context
         )
     system_message = AiMessage(
         role=prompt["role"],
         content=prompt["content"],
     )
     context.response_messages.append(system_message)
-    context.steps.append(AgentStep(step=len(context.steps) + 1, agent="Counselor", action="生成回复", observation=context.response_messages[-1].content))
+    observation = "Using skills: " + "\n\n".join(skills.keys())
+    context.steps.append(AgentStep(step=len(context.steps) + 1, agent="Counselor", action="生成回复", observation=observation))
     return state
 
 def End_Agent(state: GraphState) -> GraphState:

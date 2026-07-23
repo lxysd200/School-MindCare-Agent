@@ -1,18 +1,46 @@
-from Agents.llm_agent import LLMAgent
-from schema.dtos import ChatStreamEvent, ChatRequest
-from Agents.runtime import AgentRuntimeService
-from Agent_Type.AgentContext import AgentContext, AgentRunResult, AiMessage
-from Entities.entities import UserAccount, ChatSession, ChatMessage
 from datetime import datetime
+from turtle import title
+
 from fastapi import HTTPException
+
+from Agent_Type.AgentContext import AgentContext, AiMessage
+from Agents.llm_agent import LLMAgent
+from Agents.runtime import AgentRuntimeService
+from Entities.entities import ChatMessage, ChatSession, UserAccount
+from schema.dtos import (
+    ChatHistoryResponse,
+    ChatRequest,
+    ChatStreamEvent,
+    ConversationMessageResponse,
+    ConversationResponse,
+)
 from service.db import get_db_session
-from schema.dtos import ChatHistoryResponse, ConversationMessageResponse, ConversationResponse
+import uuid
 
 
 
 class ChatService:
     def __init__(self):
         pass
+
+    def _create_new_session(self,user: UserAccount,title: str) -> str:
+        try:
+            db = get_db_session()
+            session = ChatSession(
+                user_id=user.id,
+                title=title,
+                public_id=uuid.uuid4().hex,
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                )
+            db.add(session)
+            db.commit()
+            return session.public_id
+        except Exception as exc:
+            db.rollback()
+            raise exc
+        finally:
+            db.close()
     
     def _save_chat_message(self,request: ChatRequest,assistant_message: str,sessionId: str = None,user: UserAccount = None):
         try:
@@ -43,13 +71,17 @@ class ChatService:
     def to_sse(self, event: ChatStreamEvent) -> str:
         return f"data: {event.model_dump_json()}\n\n"
 
-    def streamChat(self, request: ChatRequest):
+    def streamChat(self, request: ChatRequest, user: UserAccount):
         llm_agent = LLMAgent.from_env("response")
         agent_runtime_service = AgentRuntimeService()
-        user = UserAccount(id=1, username="test_user",display_name="test_user")
+        if not request.sessionId:
+            request.sessionId = self._create_new_session(user,request.message)
         try:
             db = get_db_session()
-            session = db.query(ChatSession).filter(ChatSession.public_id == request.sessionId,ChatSession.user_id == user.id).first()
+            session = db.query(ChatSession).filter(
+                ChatSession.public_id == request.sessionId,
+                ChatSession.user_id == user.id,
+            ).first()
             if session is None:
                 raise HTTPException(status_code=404, detail="Session not found")
         finally:
@@ -86,10 +118,10 @@ class ChatService:
                 sessionId=request.sessionId,
                 message=str(exc),
             ))
-    def get_chat_history(self) -> list[ChatHistoryResponse]:
+
+    def get_chat_history(self, user: UserAccount) -> list[ChatHistoryResponse]:
         try:
             db = get_db_session()
-            user = UserAccount(id="1", username="test_user",display_name="test_user")
             sessions = db.query(ChatSession).filter(ChatSession.user_id == user.id).all()
             if sessions is None:
                 raise HTTPException(status_code=404, detail="Chat not found")
@@ -104,10 +136,9 @@ class ChatService:
         finally:
             db.close()
 
-    def get_conversation(self,publicId: str) -> ConversationResponse:
+    def get_conversation(self, publicId: str, user: UserAccount) -> ConversationResponse:
         try:
             db = get_db_session()
-            user = UserAccount(id="1", username="test_user",display_name="test_user")
             session = db.query(ChatSession).filter(ChatSession.public_id == publicId, ChatSession.user_id == user.id).first()
             if session is None:
                 raise HTTPException(status_code=404, detail="Chat not found")

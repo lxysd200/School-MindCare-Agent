@@ -11,6 +11,31 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     sessionId: Optional[str] = None
 
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=6, max_length=128)
+    displayName: Optional[str] = Field(default=None, max_length=128)
+
+
+class UserProfileResponse(BaseModel):
+    id: int
+    username: str
+    displayName: str
+    roles: list[str]
+
+
+class LoginResponse(BaseModel):
+    accessToken: str
+    tokenType: str = "bearer"
+    expiresIn: int
+    user: UserProfileResponse
+
 class ChatStreamEvent(BaseModel):
     sessionId: Optional[str] = None
     content: Optional[str] = None

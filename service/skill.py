@@ -35,12 +35,12 @@ class SkillService:
             selected.append("sleep_routine_support")
 
         return selected
-    def build_skill_context(self) -> str:
+    def build_skill_context(self) -> dict[str,str]:
         skill_names = self.select_skill_names(self.context.original_input, self.context.risk_level, self.context.intent)
-        sections: list[str] = []
+        sections: dict[str,str] = {}
         for name in skill_names:
             content = self.load_skill(name)
             if content:
-                sections.append(f"[Skill: {name}]\n{content}")
+                sections[name] = content
 
-        return "\n\n".join(sections)
+        return sections

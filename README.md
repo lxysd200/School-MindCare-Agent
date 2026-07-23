@@ -13,6 +13,16 @@
 - 多模型后端适配：OpenAI / DeepSeek / Ollama（统一 OpenAI SDK 调用方式）
 - 面向“开发过程留痕”的仓库组织：开发日志、关键决策与里程碑版本可追溯
 
+## 界面展示
+
+### 登录页
+
+![登录页](./ScreenShot/Login.jpeg)
+
+### 对话页
+
+![对话页](./ScreenShot/Web.jpeg)
+
 ## 快速开始
 
 ### 1. 环境要求
@@ -40,6 +50,7 @@ copy .env.example .env
 
 - LLM 推理：`LLM_BACKEND`、`DEEPSEEK_API_KEY`/`OPENAI_API_KEY` 等
 - 数据库：`DATABASE_URL` 或 `MYSQL_HOST/MYSQL_USER/...`
+- 鉴权：`JWT_SECRET_KEY`、`JWT_EXPIRE_MINUTES`
 - 向量库：`CHROMA_PATH`、`CHROMA_COLLECTION`
 - Embedding：`OPENAI_BASE_URL` + `OPENAI_EMBEDDING_MODEL` + `DASHSCOPE_API_KEY/OPENAI_API_KEY`
 - 混合检索：`ENABLE_BM25`、`HYBRID_ALPHA`、`HYBRID_GATE_THRESHOLD`、`TOP_K` 等
@@ -53,11 +64,16 @@ mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS mindbridge DEFAULT CHARSET ut
 mysql -u root -p mindbridge < SQL/mysql_schema.sql
 ```
 
-2) 插入一份最小可用的 demo 数据（当前 ChatService 默认使用 `user_id=1`）：
+2) 插入一份最小可用的 demo 用户与会话数据：
 
 ```sql
 INSERT INTO user_accounts (id, username, display_name, password_hash)
-VALUES (1, 'test_user', 'test_user', 'placeholder');
+VALUES (
+  1,
+  'test_user',
+  'test_user',
+  '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'
+);
 
 INSERT INTO chat_sessions (id, public_id, title, user_id)
 VALUES (1, 'demo-session', 'Demo Session', 1);
@@ -91,11 +107,48 @@ python main.py
 
 ### 7. 调用接口（示例）
 
-1) 流式对话（SSE）：
+1) 注册账号并直接获取 Token：
+
+`POST /api/auth/register`
+
+请求体示例：
+
+```json
+{
+  "username": "alice",
+  "password": "123456",
+  "displayName": "Alice"
+}
+```
+
+2) 登录获取 Token：
+
+`POST /api/auth/login`
+
+请求体示例：
+
+```json
+{
+  "username": "test_user",
+  "password": "test"
+}
+```
+
+3) 获取当前登录用户：
+
+`GET /api/auth/me`
+
+请求头示例：
+
+```text
+Authorization: Bearer <accessToken>
+```
+
+4) 流式对话（SSE）：
 
 `POST /api/chat/stream`
 
-请求体示例（`sessionId` 对应 `chat_sessions.public_id`）：
+请求头需要携带 `Bearer Token`，请求体示例（`sessionId` 对应 `chat_sessions.public_id`）：
 
 ```json
 {
@@ -104,11 +157,11 @@ python main.py
 }
 ```
 
-2) 会话列表：
+5) 会话列表：
 
 `GET /api/chat/history`
 
-3) 获取某个会话的完整对话：
+6) 获取某个会话的完整对话：
 
 `GET /api/chat/conversation/{publicId}`
 
@@ -124,6 +177,7 @@ python main.py
 ├── Entities/              # ORM 实体（SQLAlchemy）
 ├── SQL/                   # MySQL schema
 ├── knowledge/             # 领域知识库（markdown）
+├── ScreenShot/            # README 展示截图
 ├── skills/                # Skill 指引（SKILL.md）
 ├── rag_eval/              # 检索评测脚本与数据
 ├── Test/                  # 测试脚本（RAG/embedding/graph）
